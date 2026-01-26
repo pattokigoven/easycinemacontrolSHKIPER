@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Управление залами - Barco ICMP</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='halls.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <h1>🎬 Управление кинозалами</h1>
+                <div class="admin-info">
+                    <span class="admin-name">👤 {{ admin_name }}</span>
+                    <button class="btn btn-logout" onclick="logout()">🚪 Выход</button>
+                </div>
+            </div>
+            <div class="hall-selector">
+                <label for="hall-select">Выберите зал:</label>
+                <select id="hall-select" class="hall-select" onchange="selectHall()">
+                    <option value="">-- Выберите зал --</option>
+                    {% for hall in halls %}
+                    <option value="{{ hall.id }}" data-ip="{{ hall.ip }}" data-port="{{ hall.port }}">{{ hall.name }} ({{ hall.ip }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </header>
+
+        <!-- Карточка активного зала -->
+        <div id="hall-container" class="hall-container" style="display: none;">
+            <div class="hall-card" id="active-hall-card">
+                <div class="hall-header">
+                    <h2 id="active-hall-name">Зал не выбран</h2>
+                    <div class="hall-status">
+                        <span class="status-indicator offline" id="status-indicator">●</span>
+                        <span class="status-text" id="status-text">Не подключено</span>
+                    </div>
+                </div>
+
+                <div class="hall-info">
+                    <span id="active-hall-info"></span>
+                </div>
+
+                <div class="hall-controls">
+                    <!-- Завершить сеанс -->
+                    <button class="btn btn-shutdown" id="shutdown-btn" 
+                            onclick="shutdownSession()" disabled>
+                        🛑 ЗАВЕРШИТЬ СЕАНС
+                    </button>
+
+                    <!-- Управление звуком -->
+                    <div class="control-section">
+                        <h3>🔊 Звук</h3>
+                        <div class="volume-controls">
+                            <div class="volume-slider-container">
+                                <input type="range" class="volume-slider" 
+                                       id="volume-slider" 
+                                       min="0" max="55" value="40" step="2"
+                                       oninput="updateVolumeDisplay(this.value)"
+                                       onchange="setVolume(this.value)"
+                                       disabled>
+                                <span class="volume-value" id="volume-value">4.0</span>
+                            </div>
+                            <div class="volume-presets">
+                                <button class="btn btn-volume" onclick="setVolumePreset(0)" disabled>🔇</button>
+                                <button class="btn btn-volume" onclick="setVolumePreset(30)" disabled>3</button>
+                                <button class="btn btn-volume" onclick="setVolumePreset(40)" disabled>4</button>
+                                <button class="btn btn-volume" onclick="setVolumePreset(50)" disabled>5</button>
+                                <button class="btn btn-volume" onclick="setVolumePreset(55)" disabled>5.5</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Управление светом -->
+                    <div class="control-section">
+                        <h3>💡 Свет</h3>
+                        <div class="light-controls">
+                            <button class="btn btn-light-on" 
+                                    onclick="sendLightCommand('on')" disabled>
+                                ВКЛ
+                            </button>
+                            <button class="btn btn-light-off" 
+                                    onclick="sendLightCommand('off')" disabled>
+                                ВЫКЛ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Мини-лог -->
+                <div class="hall-log" id="hall-log">
+                    <div class="log-entry info">[--:--:--] Выберите зал...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно подтверждения -->
+    <div id="confirm-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>⚠️ Подтверждение</h2>
+            <p id="modal-message">Завершить сеанс?</p>
+            <div class="modal-details">
+                <p>Будет выполнено:</p>
+                <ul>
+                    <li>Остановка фильма</li>
+                    <li>Выключение лампы</li>
+                    <li>Очистка плеера</li>
+                    <li>Включение света в зале</li>
+                </ul>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-danger" id="modal-confirm">Завершить</button>
+                <button class="btn btn-secondary" id="modal-cancel">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='halls.js') }}"></script>
+</body>
+</html>

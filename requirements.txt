@@ -1,0 +1,15 @@
+# Barco ICMP Control Application
+# Зависимости Python
+
+# Tkinter входит в стандартную установку Python
+# Дополнительные зависимости не требуются (для desktop версии)
+
+# Для веб-версии (barco_web.py):
+Flask>=2.3.0
+Flask-SocketIO>=5.3.0
+python-socketio>=5.9.0
+eventlet>=0.33.0
+
+# Для разработки (опционально):
+# pylint>=2.0.0
+# black>=22.0.0

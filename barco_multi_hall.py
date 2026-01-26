@@ -1,0 +1,476 @@
+"""
+Barco ICMP Multi-Hall Control - Web Interface
+Веб-интерфейс для управления несколькими залами одновременно
+"""
+
+from flask import Flask, render_template, request, jsonify, session
+from flask_socketio import SocketIO, emit
+import socket
+import threading
+import time
+import json
+import random
+from datetime import datetime
+import os
+
+
+class BarcoController:
+    """Класс для управления одним залом Barco ICMP"""
+    
+    def __init__(self, hall_id, host='192.168.1.100', port=43748):
+        self.hall_id = hall_id
+        self.host = host
+        self.port = port
+        self.socket = None
+        self.connected = False
+        self.ack_enabled = False
+        self.lock = threading.Lock()
+        
+    def connect(self):
+        """Подключение к Barco ICMP"""
+        acquired = self.lock.acquire(timeout=10)
+        if not acquired:
+            return False, "Не удалось получить блокировку (timeout)"
+        
+        try:
+            print(f"[{self.hall_id}] Попытка подключения к {self.host}:{self.port}")
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(5)
+            self.socket.connect((self.host, self.port))
+            self.connected = True
+            
+            print(f"[{self.hall_id}] Подключено к {self.host}:{self.port}")
+            
+            # Включаем подтверждения (ACK)
+            success, response = self._send_command_internal("ACK,1")
+            if success:
+                self.ack_enabled = True
+                print(f"[{self.hall_id}] ACK режим включен: {response}")
+            
+            return True, f"Подключено к {self.host}:{self.port}"
+        except Exception as e:
+            print(f"[{self.hall_id}] Ошибка подключения: {str(e)}")
+            self.connected = False
+            return False, f"Ошибка подключения: {str(e)}"
+        finally:
+            self.lock.release()
+    
+    def disconnect(self):
+        """Отключение от Barco ICMP"""
+        acquired = self.lock.acquire(timeout=10)
+        if not acquired:
+            return
+        
+        try:
+            if self.socket:
+                try:
+                    self.socket.close()
+                except:
+                    pass
+            self.connected = False
+            self.socket = None
+            self.ack_enabled = False
+            print(f"[{self.hall_id}] Отключено")
+        finally:
+            self.lock.release()
+    
+    def _send_command_internal(self, command):
+        """Внутренний метод отправки команды (без блокировки)"""
+        if not self.connected or not self.socket:
+            return False, "Не подключено к устройству"
+        
+        try:
+            if not command.endswith(';'):
+                command = command + ';'
+            
+            self.socket.sendall(command.encode('ascii'))
+            print(f"[{self.hall_id}] Отправлено: {command}")
+            
+            if self.ack_enabled or command.startswith('ACK'):
+                time.sleep(0.1)
+                try:
+                    response = self.socket.recv(1024).decode('ascii').strip()
+                    if response:
+                        print(f"[{self.hall_id}] Ответ: {response}")
+                        if 'ACK' in response:
+                            return True, "ACK"
+                        elif 'NACK' in response:
+                            return False, "NACK"
+                        return True, response
+                    return True, "OK"
+                except socket.timeout:
+                    return True, "OK (timeout)"
+            else:
+                return True, "Отправлено"
+            
+        except Exception as e:
+            print(f"[{self.hall_id}] Ошибка отправки команды: {str(e)}")
+            return False, f"Ошибка: {str(e)}"
+    
+    def send_command(self, command):
+        """Публичный метод отправки команды (с блокировкой)"""
+        acquired = self.lock.acquire(timeout=10)
+        if not acquired:
+            return False, "Не удалось получить блокировку (timeout)"
+        
+        try:
+            return self._send_command_internal(command)
+        finally:
+            self.lock.release()
+    
+    def stop(self):
+        """Остановка воспроизведения"""
+        return self.send_command("PLAYER.Stop")
+    
+    def lamp_off(self):
+        """Выключение лампы"""
+        return self.send_command("PROJECTOR.Turn Lamp Off")
+    
+    def clear(self):
+        """Очистка плейлиста"""
+        return self.send_command("PLAYER.Clear")
+    
+    def light_on(self):
+        """Включение света через EKOS"""
+        return self.send_command('EKOS.Send Text,"$KE,WR,4,1\\0D\\0A"')
+    
+    def light_off(self):
+        """Выключение света через EKOS"""
+        return self.send_command('EKOS.Send Text,"$KE,WR,1,1\\0D\\0A"')
+    
+    def set_volume(self, level):
+        """Установка громкости через tm8710 (0-5.5)"""
+        fader_value = int(float(level) * 10)
+        return self.send_command(f'tm8710.Send Text,"tm8710.sys.fader {fader_value}"')
+    
+    def shutdown_session(self):
+        """Полное завершение сеанса: Stop -> Lamp OFF -> Clear -> Lights ON"""
+        results = []
+        
+        # 1. Остановка
+        success, response = self.stop()
+        results.append(('stop', success, response))
+        time.sleep(0.5)
+        
+        # 2. Выключение лампы
+        success, response = self.lamp_off()
+        results.append(('lamp_off', success, response))
+        time.sleep(0.5)
+        
+        # 3. Очистка
+        success, response = self.clear()
+        results.append(('clear', success, response))
+        time.sleep(0.5)
+        
+        # 4. Включение света
+        success, response = self.send_command('EKOS.Send Text,"$KE,WR,4,1\\0D\\0A"')
+        results.append(('lights_on', success, response))
+        
+        all_success = all(r[1] for r in results)
+        return all_success, results
+
+
+# Мемные приветствия для администраторов
+def load_greetings():
+    """Загружает приветствия из файла"""
+    try:
+        with open('greetings.txt', 'r', encoding='utf-8') as f:
+            greetings = [line.strip() for line in f if line.strip()]
+            return greetings if greetings else ["Добро пожаловать! 🎬"]
+    except FileNotFoundError:
+        print("Предупреждение: Файл greetings.txt не найден. Используются приветствия по умолчанию.")
+        return [
+            "Приветствую, повелитель пикселей! 🎬",
+            "О великий киномеханик, ваше величество! 👑",
+            "Добро пожаловать в царство 24 кадров в секунду! 🎞️"
+        ]
+
+GREETINGS = load_greetings()
+
+# Логирование действий
+def log_action(admin_name, hall_id, action, details=''):
+    """Записывает действие администратора в лог-файл"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f"[{timestamp}] Админ: {admin_name} | Зал: {hall_id} | Действие: {action}"
+    if details:
+        log_entry += f" | {details}"
+    
+    # Запись в файл
+    log_dir = 'logs'
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    log_file = os.path.join(log_dir, f'admin_actions_{datetime.now().strftime("%Y-%m-%d")}.log')
+    with open(log_file, 'a', encoding='utf-8') as f:
+        f.write(log_entry + '\n')
+    
+    print(log_entry)
+
+# Flask приложение
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'barco-multi-hall-secret-key-2026'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', manage_session=False)
+
+# Загрузка конфигурации залов
+def load_halls_config():
+    try:
+        with open('halls_config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return config['halls']
+    except Exception as e:
+        print(f"Ошибка загрузки конфигурации: {e}")
+        return []
+
+# Словарь контроллеров для каждого зала
+controllers = {}
+
+def init_controllers():
+    """Инициализация контроллеров для каждого зала"""
+    halls = load_halls_config()
+    print(f"Загружено залов из конфигурации: {len(halls)}")
+    for hall in halls:
+        hall_id = hall['id']
+        print(f"  Инициализация зала: {hall_id} -> {hall['ip']}:{hall['port']}")
+        controllers[hall_id] = BarcoController(
+            hall_id=hall_id,
+            host=hall['ip'],
+            port=hall['port']
+        )
+    print(f"Инициализировано {len(controllers)} залов")
+    print(f"Ключи в controllers: {list(controllers.keys())}")
+
+# Инициализация при запуске
+init_controllers()
+
+
+def emit_log(hall_id, message, level='info'):
+    """Отправка лога через WebSocket"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    socketio.emit('log', {
+        'hall_id': hall_id,
+        'message': message,
+        'level': level,
+        'timestamp': timestamp
+    })
+    print(f"[{hall_id}] {message}")
+
+
+@app.route('/')
+def index():
+    """Главная страница с управлением всеми залами"""
+    # Проверка авторизации
+    if 'admin_name' not in session:
+        return render_template('login.html', greeting=random.choice(GREETINGS))
+    
+    halls = load_halls_config()
+    admin_name = session.get('admin_name', 'Неизвестный')
+    return render_template('halls.html', halls=halls, admin_name=admin_name)
+
+@app.route('/login', methods=['POST'])
+def login():
+    """Авторизация администратора"""
+    data = request.get_json()
+    admin_name = data.get('admin_name', '').strip()
+    
+    if not admin_name:
+        return jsonify({'success': False, 'message': 'Введите имя'})
+    
+    if len(admin_name) < 2:
+        return jsonify({'success': False, 'message': 'Имя слишком короткое'})
+    
+    session['admin_name'] = admin_name
+    log_action(admin_name, 'SYSTEM', 'LOGIN', 'Вход в систему')
+    
+    return jsonify({'success': True, 'message': f'Добро пожаловать, {admin_name}!'})
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Выход из системы"""
+    admin_name = session.get('admin_name', 'Неизвестный')
+    log_action(admin_name, 'SYSTEM', 'LOGOUT', 'Выход из системы')
+    session.pop('admin_name', None)
+    return jsonify({'success': True})
+
+@app.route('/api/admin')
+def get_admin():
+    """Получить имя текущего администратора"""
+    return jsonify({
+        'admin_name': session.get('admin_name', None),
+        'authenticated': 'admin_name' in session
+    })
+
+
+@app.route('/api/halls')
+def get_halls():
+    """Получить список залов с их статусом"""
+    halls = load_halls_config()
+    halls_status = []
+    for hall in halls:
+        hall_id = hall['id']
+        controller = controllers.get(hall_id)
+        halls_status.append({
+            'id': hall_id,
+            'name': hall['name'],
+            'ip': hall['ip'],
+            'port': hall['port'],
+            'connected': controller.connected if controller else False
+        })
+    return jsonify(halls_status)
+
+
+@app.route('/api/<hall_id>/connect', methods=['POST'])
+def connect_hall(hall_id):
+    """Подключение к залу"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    print(f"[API] Запрос на подключение к залу: {hall_id} от {admin_name}")
+    print(f"[API] Доступные залы: {list(controllers.keys())}")
+    
+    controller = controllers.get(hall_id)
+    if not controller:
+        print(f"[API] ОШИБКА: Зал {hall_id} не найден в controllers")
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+    
+    print(f"[API] Контроллер найден для {hall_id}, начинаем подключение...")
+    success, message = controller.connect()
+    emit_log(hall_id, message, 'success' if success else 'error')
+    
+    return jsonify({'success': success, 'message': message})
+
+
+@app.route('/api/<hall_id>/disconnect', methods=['POST'])
+def disconnect_hall(hall_id):
+    """Отключение от зала"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    controller = controllers.get(hall_id)
+    if not controller:
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+    
+    controller.disconnect()
+    log_action(admin_name, hall_id, 'DISCONNECT', f'IP: {controller.host}')
+    emit_log(hall_id, 'Отключено', 'info')
+    
+    return jsonify({'success': True, 'message': 'Отключено'})
+
+
+@app.route('/api/<hall_id>/shutdown-session', methods=['POST'])
+def shutdown_session(hall_id):
+    """Полное завершение сеанса"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    controller = controllers.get(hall_id)
+    if not controller:
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+    
+    if not controller.connected:
+        return jsonify({'success': False, 'message': 'Не подключено'})
+    
+    emit_log(hall_id, '=== ЗАВЕРШЕНИЕ СЕАНСА ===', 'info')
+    
+    success, results = controller.shutdown_session()
+    
+    # Логирование действия
+    log_action(admin_name, hall_id, 'SHUTDOWN_SESSION', 
+              f'Результат: {"успешно" if success else "с ошибками"}')
+    
+    for action, result, response in results:
+        level = 'success' if result else 'error'
+        emit_log(hall_id, f'{action}: {response}', level)
+    
+    emit_log(hall_id, '=== СЕАНС ЗАВЕРШЕН ===' if success else '=== ЗАВЕРШЕНО С ОШИБКАМИ ===', 
+             'success' if success else 'warning')
+    
+    return jsonify({'success': success, 'message': 'Сеанс завершен' if success else 'Завершено с ошибками'})
+
+
+@app.route('/api/<hall_id>/light/<action>', methods=['POST'])
+def control_light(hall_id, action):
+    """Управление светом"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    controller = controllers.get(hall_id)
+    if not controller:
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+    
+    if not controller.connected:
+        return jsonify({'success': False, 'message': 'Не подключено'})
+    
+    if action == 'on':
+        success, response = controller.light_on()
+        log_action(admin_name, hall_id, 'LIGHT_ON', 'Включение света')
+        emit_log(hall_id, f'Свет ВКЛ: {response}', 'success' if success else 'error')
+    elif action == 'off':
+        success, response = controller.light_off()
+        log_action(admin_name, hall_id, 'LIGHT_OFF', 'Выключение света')
+        emit_log(hall_id, f'Свет ВЫКЛ: {response}', 'success' if success else 'error')
+    else:
+        return jsonify({'success': False, 'message': 'Неизвестное действие'})
+    
+    return jsonify({'success': success, 'message': response})
+
+
+@app.route('/api/<hall_id>/volume', methods=['POST'])
+def set_volume(hall_id):
+    """Установка громкости"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    controller = controllers.get(hall_id)
+    if not controller:
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+    
+    if not controller.connected:
+        return jsonify({'success': False, 'message': 'Не подключено'})
+    
+    data = request.get_json()
+    level = float(data.get('level', 4))
+    
+    if level < 0 or level > 5.5:
+        return jsonify({'success': False, 'message': 'Уровень должен быть от 0 до 5.5'})
+    
+    success, response = controller.set_volume(level)
+    log_action(admin_name, hall_id, 'VOLUME', f'Уровень: {level}')
+    emit_log(hall_id, f'Громкость {level}: {response}', 'success' if success else 'error')
+    
+    return jsonify({'success': success, 'message': response, 'level': level})
+
+
+@socketio.on('connect')
+def handle_connect():
+    """Обработка подключения WebSocket"""
+    emit('connected', {'message': 'WebSocket подключен'})
+    print('WebSocket клиент подключен')
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Обработка отключения WebSocket"""
+    print('WebSocket клиент отключен')
+
+
+if __name__ == '__main__':
+    print("=" * 50)
+    print("Barco ICMP Multi-Hall Control - Запуск сервера")
+    print("=" * 50)
+    print(f"Загружено залов: {len(controllers)}")
+    for hall_id, controller in controllers.items():
+        print(f"  - {hall_id}: {controller.host}:{controller.port}")
+    print()
+    print("Сервер запущен на:")
+    print("  http://127.0.0.1:5000")
+    print("  http://0.0.0.0:5000")
+    print("=" * 50)
+    
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)

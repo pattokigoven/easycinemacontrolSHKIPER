@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barco ICMP Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Barco ICMP Control</h1>
+            <p class="subtitle">Веб-интерфейс управления воспроизведением</p>
+        </header>
+
+        <!-- Подключение -->
+        <section class="connection-section">
+            <h2>Подключение</h2>
+            <div class="connection-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="host">IP адрес:</label>
+                        <input type="text" id="host" value="192.168.1.100" placeholder="192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label for="port">Порт:</label>
+                        <input type="number" id="port" value="43748" placeholder="43748">
+                    </div>
+                    <div class="form-group">
+                        <label>Статус:</label>
+                        <span id="status-indicator" class="status-indicator offline">●</span>
+                    </div>
+                </div>
+                <button id="connect-btn" class="btn btn-primary" onclick="toggleConnection()">Подключить</button>
+            </div>
+        </section>
+
+        <!-- Управление воспроизведением -->
+        <section class="playback-section">
+            <h2>Управление воспроизведением</h2>
+            <div class="button-grid">
+                <button class="btn btn-control" onclick="sendPlayerCommand('play')" disabled>
+                    <span class="icon">▶</span> Play
+                </button>
+                <button class="btn btn-control" onclick="sendPlayerCommand('pause')" disabled>
+                    <span class="icon">⏸</span> Pause
+                </button>
+                <button class="btn btn-control" onclick="sendPlayerCommand('stop')" disabled>
+                    <span class="icon">⏹</span> Stop
+                </button>
+                <button class="btn btn-control" onclick="sendPlayerCommand('clear')" disabled>
+                    <span class="icon">🗑</span> Clear
+                </button>
+            </div>
+            <div class="button-grid" style="margin-top: 10px;">
+                <button class="btn btn-control btn-secondary" onclick="sendPlayerCommand('resume')" disabled>
+                    <span class="icon">▶▶</span> Resume
+                </button>
+                <button class="btn btn-control btn-secondary" onclick="sendPlayerCommand('previous')" disabled>
+                    <span class="icon">⏮</span> Previous
+                </button>
+                <button class="btn btn-control btn-secondary" onclick="sendPlayerCommand('next')" disabled>
+                    <span class="icon">⏭</span> Next
+                </button>
+            </div>
+        </section>
+
+        <!-- Управление проектором -->
+        <section class="lamp-section">
+            <h2>Управление проектором</h2>
+            <div class="button-grid">
+                <button class="btn btn-lamp btn-lamp-on" onclick="sendProjectorCommand('lamp_on')" disabled>
+                    <span class="icon">💡</span> Lamp ON
+                </button>
+                <button class="btn btn-lamp btn-lamp-off" onclick="sendProjectorCommand('lamp_off')" disabled>
+                    <span class="icon">🌑</span> Lamp OFF
+                </button>
+                <button class="btn btn-lamp btn-secondary" onclick="sendProjectorCommand('open_dowser')" disabled>
+                    <span class="icon">🔓</span> Open Dowser
+                </button>
+                <button class="btn btn-lamp btn-secondary" onclick="sendProjectorCommand('close_dowser')" disabled>
+                    <span class="icon">🔒</span> Close Dowser
+                </button>
+            </div>
+        </section>
+
+        <!-- Управление освещением зала -->
+        <section class="house-light-section">
+            <h2>Управление освещением зала</h2>
+            
+            <!-- Кнопки управления светом через EKOS -->
+            <div class="button-grid">
+                <button class="btn btn-house-light btn-light-on" onclick="sendLightCommand('on')" disabled>
+                    <span class="icon">💡</span> Свет ВКЛ
+                </button>
+                <button class="btn btn-house-light btn-light-off" onclick="sendLightCommand('off')" disabled>
+                    <span class="icon">🌑</span> Свет ВЫКЛ
+                </button>
+            </div>
+            <p class="hint">Управление через EKOS.Send Text</p>
+        </section>
+
+        <!-- Управление громкостью -->
+        <section class="volume-section">
+            <h2>Управление громкостью</h2>
+            
+            <div class="volume-control">
+                <label for="volume-slider">Уровень: <span id="volume-value">4.0</span></label>
+                <input type="range" id="volume-slider" min="0" max="55" value="40" step="2" 
+                       oninput="updateVolumeDisplay(this.value)" 
+                       onchange="setVolume(this.value)" disabled>
+                <div class="volume-presets">
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(0)" disabled>🔇 0</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(30)" disabled>3.0</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(40)" disabled>4.0</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(42)" disabled>4.2</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(44)" disabled>4.4</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(46)" disabled>4.6</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(48)" disabled>4.8</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(50)" disabled>🔊 5.0</button>
+                    <button class="btn btn-volume btn-secondary" onclick="setVolumePreset(55)" disabled>5.5</button>
+                </div>
+            </div>
+            <p class="hint">Управление через tm8710.Send Text</p>
+        </section>
+
+        <!-- Полная остановка сеанса -->
+        <section class="shutdown-section">
+            <h2>Полная остановка сеанса</h2>
+            <button class="btn btn-shutdown" onclick="shutdownSession()" disabled>
+                <span class="icon">🛑</span> ЗАВЕРШИТЬ СЕАНС
+            </button>
+            <p class="hint">Остановит фильм, выключит лампу и очистит плеер</p>
+        </section>
+
+        <!-- Произвольная команда -->
+        <section class="custom-command-section">
+            <h2>Произвольная команда</h2>
+            <div class="custom-command-form">
+                <input type="text" id="custom-command" placeholder="Например: PLAYER.Next или PROJECTOR.Execute Macro,&quot;2D_FLAT&quot;" disabled>
+                <button class="btn btn-primary" onclick="sendCustomCommand()" disabled>Отправить</button>
+            </div>
+            <p class="hint">Примеры: PLAYER.Resume; PLAYER.Next; PROJECTOR.Open Dowser; GPIO.Set Up,5</p>
+        </section>
+
+        <!-- Лог -->
+        <section class="log-section">
+            <h2>Лог операций</h2>
+            <div id="log-container" class="log-container"></div>
+            <button class="btn btn-secondary" onclick="clearLog()" style="margin-top: 10px;">Очистить лог</button>
+        </section>
+    </div>
+
+    <footer>
+        <p>Barco ICMP Control v1.0 | Protocol: Barco ICMP Automation over IP v0.8</p>
+    </footer>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

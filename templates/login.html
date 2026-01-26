@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Вход - Barco ICMP Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 20px;
+            padding: 50px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .logo {
+            font-size: 4em;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        h1 {
+            color: #2a5298;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .greeting {
+            color: #667eea;
+            font-size: 1.2em;
+            margin-bottom: 30px;
+            font-weight: 600;
+            padding: 15px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+            animation: fadeIn 0.8s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 1.1em;
+            transition: all 0.3s;
+            outline: none;
+        }
+        
+        input[type="text"]:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.2em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .error-message {
+            color: #dc2626;
+            margin-top: 15px;
+            padding: 10px;
+            background: #fef2f2;
+            border-radius: 8px;
+            border-left: 4px solid #dc2626;
+            display: none;
+        }
+        
+        .hint {
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        
+        /* Адаптация для мобильных */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+            
+            .login-container {
+                padding: 30px 25px;
+            }
+            
+            .logo {
+                font-size: 3em;
+                margin-bottom: 15px;
+            }
+            
+            h1 {
+                font-size: 1.6em;
+                margin-bottom: 8px;
+            }
+            
+            .greeting {
+                font-size: 1.05em;
+                padding: 12px;
+                margin-bottom: 25px;
+            }
+            
+            label {
+                font-size: 1em;
+            }
+            
+            input[type="text"] {
+                padding: 14px;
+                font-size: 16px; /* Предотвращает zoom на iOS */
+            }
+            
+            .btn {
+                padding: 14px;
+                font-size: 1.1em;
+            }
+            
+            .hint {
+                font-size: 0.85em;
+            }
+        }
+        
+        @media (max-width: 380px) {
+            .login-container {
+                padding: 25px 20px;
+            }
+            
+            .logo {
+                font-size: 2.5em;
+            }
+            
+            h1 {
+                font-size: 1.4em;
+            }
+            
+            .greeting {
+                font-size: 0.95em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">🎬</div>
+        <h1>Barco ICMP Control</h1>
+        <div class="greeting">{{ greeting }}</div>
+        
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="admin-name">Ваше имя</label>
+                <input 
+                    type="text" 
+                    id="admin-name" 
+                    name="admin-name" 
+                    placeholder="Введите ваше имя..."
+                    required
+                    minlength="2"
+                    maxlength="50"
+                    autofocus
+                >
+                <div class="hint">Минимум 2 символа</div>
+            </div>
+            
+            <button type="submit" class="btn" id="login-btn">
+                🚀 Войти в систему
+            </button>
+            
+            <div class="error-message" id="error-message"></div>
+        </form>
+    </div>
+    
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const adminName = document.getElementById('admin-name').value.trim();
+            const loginBtn = document.getElementById('login-btn');
+            const errorMessage = document.getElementById('error-message');
+            
+            // Скрыть ошибку
+            errorMessage.style.display = 'none';
+            
+            // Блокировать кнопку
+            loginBtn.disabled = true;
+            loginBtn.textContent = '⏳ Вход...';
+            
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ admin_name: adminName })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Успешный вход - перенаправление
+                    loginBtn.textContent = '✅ Успешно!';
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 500);
+                } else {
+                    // Ошибка
+                    errorMessage.textContent = '❌ ' + data.message;
+                    errorMessage.style.display = 'block';
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '🚀 Войти в систему';
+                }
+            } catch (error) {
+                errorMessage.textContent = '❌ Ошибка подключения к серверу';
+                errorMessage.style.display = 'block';
+                loginBtn.disabled = false;
+                loginBtn.textContent = '🚀 Войти в систему';
+            }
+        }
+        
+        // Автофокус на поле ввода
+        document.getElementById('admin-name').focus();
+    </script>
+</body>
+</html>
