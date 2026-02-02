@@ -41,9 +41,7 @@
                     </div>
                 </div>
 
-                <div class="hall-info">
-                    <span id="active-hall-info"></span>
-                </div>
+
 
                 <!-- Новый блок: Статус воспроизведения -->
                 <div class="control-section">
@@ -62,41 +60,42 @@
                         🛑 ЗАВЕРШИТЬ СЕАНС
                     </button>
 
-                    <!-- Управление звуком -->
-                    <div class="control-section">
-                        <h3>🔊 Звук</h3>
-                        <div class="volume-controls">
-                            <div class="volume-slider-container">
-                                <input type="range" class="volume-slider" 
-                                       id="volume-slider" 
-                                       min="0" max="55" value="40" step="2"
-                                       oninput="updateVolumeDisplay(this.value)"
-                                       onchange="setVolume(this.value)"
-                                       disabled>
-                                <span class="volume-value" id="volume-value">4.0</span>
+                    <!-- Управление CP750 Аудиопроцессором -->
+                    <div class="control-section cp750-section">
+                        <h3>🎛️ CP750 Аудиопроцессор</h3>
+                        <div class="cp750-status" id="cp750-status">
+                            <div class="cp750-info">
+                                <span class="cp750-indicator offline" id="cp750-indicator">●</span>
+                                <span id="cp750-status-text">Не подключен</span>
                             </div>
-                            <div class="volume-presets">
-                                <button class="btn btn-volume" onclick="setVolumePreset(0)" disabled>🔇</button>
-                                <button class="btn btn-volume" onclick="setVolumePreset(30)" disabled>3</button>
-                                <button class="btn btn-volume" onclick="setVolumePreset(40)" disabled>4</button>
-                                <button class="btn btn-volume" onclick="setVolumePreset(50)" disabled>5</button>
-                                <button class="btn btn-volume" onclick="setVolumePreset(55)" disabled>5.5</button>
+                            <div class="cp750-details" id="cp750-details" style="display: none;">
+                                <div class="cp750-detail"><strong>Формат:</strong> <span id="cp750-format">—</span></div>
+                                <div class="cp750-detail"><strong>Вход:</strong> <span id="cp750-input">—</span></div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Управление светом -->
-                    <div class="control-section">
-                        <h3>💡 Свет</h3>
-                        <div class="light-controls">
-                            <button class="btn btn-light-on" 
-                                    onclick="sendLightCommand('on')" disabled>
-                                ВКЛ
-                            </button>
-                            <button class="btn btn-light-off" 
-                                    onclick="sendLightCommand('off')" disabled>
-                                ВЫКЛ
-                            </button>
+                        <div class="cp750-controls">
+                            <div class="cp750-fader-container">
+                                <label>Громкость CP750:</label>
+                                <div class="cp750-fader-row">
+                                    <button class="btn btn-cp750-mute" id="cp750-mute-btn" onclick="toggleCP750Mute()" disabled>
+                                        🔊
+                                    </button>
+                                    <input type="range" class="cp750-fader" 
+                                           id="cp750-fader" 
+                                           min="0" max="100" value="50" step="1"
+                                           oninput="updateCP750FaderDisplay(this.value)"
+                                           onchange="setCP750Fader(this.value)"
+                                           disabled>
+                                    <span class="cp750-fader-value" id="cp750-fader-value">50</span>
+                                </div>
+                            </div>
+                            <div class="cp750-presets">
+                                <button class="btn btn-cp750" onclick="setCP750Preset(0)" disabled>0</button>
+                                <button class="btn btn-cp750" onclick="setCP750Preset(40)" disabled>40</button>
+                                <button class="btn btn-cp750" onclick="setCP750Preset(50)" disabled>50</button>
+                                <button class="btn btn-cp750" onclick="setCP750Preset(60)" disabled>60</button>
+                                <button class="btn btn-cp750" onclick="setCP750Preset(70)" disabled>70</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -117,10 +116,11 @@
             <div class="modal-details">
                 <p>Будет выполнено:</p>
                 <ul>
-                    <li>Остановка фильма</li>
-                    <li>Выключение лампы</li>
-                    <li>Очистка плеера</li>
-                    <li>Включение света в зале</li>
+                    <li id="step-stop">⏸️ Остановка воспроизведения</li>
+                    <li id="step-dowser">🚪 Закрытие шторки (Dowser)</li>
+                    <li id="step-lamp">💡 Выключение лампы</li>
+                    <li id="step-fader">🔊 Громкость CP750 → 30</li>
+                    <li id="step-input">🔌 Вход CP750 → non_sync</li>
                 </ul>
             </div>
             <div class="modal-buttons">

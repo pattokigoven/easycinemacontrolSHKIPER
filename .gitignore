@@ -1,43 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Flask
-instance/
-.webassets-cache
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Logs
-*.log
+﻿.venv/
 logs/
-
-# Local config
-config.local.py
-.env
-.env.local
-
-# Temporary files
-*.tmp
-*.bak
-*.cache
+__pycache__/
+*.pyc
+.DS_Store

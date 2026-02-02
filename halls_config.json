@@ -6,7 +6,8 @@
       "ip": "192.168.198.61",
       "port": 43748,
       "tms_id": "Zal1",
-      "protocol": "barco"
+      "protocol": "barco",
+      "cp750_id": "Zal1_cp750"
     },
     {
       "id": "hall2",
@@ -14,7 +15,8 @@
       "ip": "192.168.198.62",
       "port": 43748,
       "tms_id": "Zal2",
-      "protocol": "dolby"
+      "protocol": "dolby",
+      "cp750_id": "Zal2_cp750"
     },
     {
       "id": "hall3",
@@ -22,7 +24,8 @@
       "ip": "192.168.198.63",
       "port": 43748,
       "tms_id": "Zal3",
-      "protocol": "dolby"
+      "protocol": "dolby",
+      "cp750_id": "Zal3_cp750"
     },
     {
       "id": "hall4",
@@ -30,7 +33,8 @@
       "ip": "192.168.198.64",
       "port": 43748,
       "tms_id": "Zal4",
-      "protocol": "barco"
+      "protocol": "barco",
+      "cp750_id": "Zal4_cp750"
     },
     {
       "id": "hall5",
@@ -38,7 +42,8 @@
       "ip": "192.168.198.65",
       "port": 43748,
       "tms_id": "Zal5",
-      "protocol": "dolby"
+      "protocol": "dolby",
+      "cp750_id": "Zal5_cp750"
     },
     {
       "id": "hall6",
@@ -46,7 +51,8 @@
       "ip": "192.168.198.66",
       "port": 43748,
       "tms_id": "Zal6",
-      "protocol": "dolby"
+      "protocol": "dolby",
+      "cp750_id": "Zal6_cp750"
     }
   ]
 }

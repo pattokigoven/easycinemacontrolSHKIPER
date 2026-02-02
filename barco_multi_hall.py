@@ -382,6 +382,7 @@ def get_halls():
             'port': hall['port'],
             'tms_id': hall.get('tms_id', hall['id']),
             'protocol': hall.get('protocol', 'barco'),
+            'cp750_id': hall.get('cp750_id'),
             'connected': False
         })
     return jsonify(result)
@@ -395,6 +396,196 @@ def status_live():
         return jsonify(r.json()), r.status_code
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+# ============ CP750 API Endpoints ============
+
+@app.route('/api/cp750/status/all')
+def cp750_status_all():
+    """Получить статус всех CP750 аудиопроцессоров"""
+    try:
+        r = requests.get(f"{EXTERNAL_API_BASE}/api/cp750/status/all", timeout=5)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+@app.route('/api/cp750/<cp_id>/status')
+def cp750_status(cp_id):
+    """Получить статус конкретного CP750"""
+    try:
+        r = requests.get(f"{EXTERNAL_API_BASE}/api/cp750/{cp_id}/status", timeout=5)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+@app.route('/api/cp750/<cp_id>/fader', methods=['POST'])
+def cp750_fader(cp_id):
+    """Установить уровень громкости CP750"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    data = request.get_json()
+    value = data.get('value', 50)
+    force = data.get('force', False)
+    
+    try:
+        r = requests.post(
+            f"{EXTERNAL_API_BASE}/api/cp750/{cp_id}/fader",
+            json={'value': value, 'force': force},
+            timeout=5
+        )
+        result = r.json()
+        
+        # Логирование
+        log_action(admin_name, cp_id, 'CP750_FADER', f'Уровень: {value}')
+        
+        # Emit через WebSocket
+        hall_id = cp_id.replace('_cp750', '').lower()
+        emit_log(hall_id, f'CP750 Громкость: {value}', 'success' if result.get('ok', True) else 'error')
+        
+        return jsonify({'success': True, 'result': result}), r.status_code
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/cp750/<cp_id>/mute', methods=['POST'])
+def cp750_mute(cp_id):
+    """Установить mute CP750"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    data = request.get_json()
+    mute = data.get('mute', False)
+    
+    try:
+        r = requests.post(
+            f"{EXTERNAL_API_BASE}/api/cp750/{cp_id}/mute",
+            json={'mute': mute},
+            timeout=5
+        )
+        result = r.json()
+        
+        # Логирование
+        action = 'CP750_MUTE_ON' if mute else 'CP750_MUTE_OFF'
+        log_action(admin_name, cp_id, action, '')
+        
+        # Emit через WebSocket
+        hall_id = cp_id.replace('_cp750', '').lower()
+        emit_log(hall_id, f'CP750 Mute: {"ВКЛ" if mute else "ВЫКЛ"}', 'success')
+        
+        return jsonify({'success': True, 'result': result}), r.status_code
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+@app.route('/api/cp750/<cp_id>/input-mode', methods=['POST'])
+def cp750_input_mode(cp_id):
+    """Установить режим входа CP750"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    data = request.get_json()
+    mode = data.get('mode', 'dig_1')
+    
+    try:
+        r = requests.post(
+            f"{EXTERNAL_API_BASE}/api/cp750/{cp_id}/input-mode",
+            json={'mode': mode},
+            timeout=5
+        )
+        result = r.json()
+        
+        # Логирование
+        log_action(admin_name, cp_id, 'CP750_INPUT_MODE', f'Режим: {mode}')
+        
+        # Emit через WebSocket
+        hall_id = cp_id.replace('_cp750', '').lower()
+        emit_log(hall_id, f'CP750 Вход: {mode}', 'success' if result.get('ok', True) else 'error')
+        
+        return jsonify({'success': True, 'result': result}), r.status_code
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 502
+
+
+# ============ End CP750 API ============
+
+# ============ Projector API ============
+
+@app.route('/api/<device_id>/stop', methods=['POST'])
+def projector_stop(device_id):
+    """Остановка воспроизведения через TMS API"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    
+    try:
+        r = requests.post(f"{EXTERNAL_API_BASE}/api/{device_id}/stop", timeout=10)
+        result = r.json()
+        log_action(admin_name, device_id, 'STOP', '')
+        return jsonify(result), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+@app.route('/api/<device_id>/projector/lamp/<action>', methods=['POST'])
+def projector_lamp(device_id, action):
+    """Управление лампой проектора через TMS API"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    
+    if action not in ['on', 'off']:
+        return jsonify({'ok': False, 'error': 'Invalid action'}), 400
+    
+    try:
+        # Используем формат {"on": true/false}
+        lamp_on = (action == 'on')
+        r = requests.post(
+            f"{EXTERNAL_API_BASE}/api/{device_id}/lamp",
+            json={'on': lamp_on},
+            timeout=10
+        )
+        result = r.json()
+        log_action(admin_name, device_id, f'LAMP_{action.upper()}', '')
+        return jsonify(result), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+@app.route('/api/<device_id>/projector/dowser/<action>', methods=['POST'])
+def projector_dowser(device_id, action):
+    """Управление шторкой проектора через TMS API"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+    
+    admin_name = session['admin_name']
+    
+    if action not in ['open', 'close']:
+        return jsonify({'ok': False, 'error': 'Invalid action'}), 400
+    
+    try:
+        # Используем формат {"closed": true/false}
+        closed = (action == 'close')
+        r = requests.post(
+            f"{EXTERNAL_API_BASE}/api/{device_id}/dowser",
+            json={'closed': closed},
+            timeout=10
+        )
+        result = r.json()
+        log_action(admin_name, device_id, f'DOWSER_{action.upper()}', '')
+        return jsonify(result), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+
+# ============ End Projector API ============
 
 @app.route('/api/status/stream')
 def status_stream():

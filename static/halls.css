@@ -342,34 +342,172 @@ header h1 {
     box-shadow: 0 3px 10px rgba(16, 185, 129, 0.4);
 }
 
-/* Свет */
-.light-controls {
+/* CP750 Аудиопроцессор */
+.cp750-section {
+    border: 2px solid #8b5cf6;
+    background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+}
+
+.cp750-status {
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
+}
+
+.cp750-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cp750-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.cp750-indicator.online {
+    background-color: #8b5cf6;
+    box-shadow: 0 0 8px #8b5cf6;
+}
+
+.cp750-indicator.offline {
+    background-color: #9ca3af;
+}
+
+.cp750-details {
+    display: flex;
+    gap: 20px;
+    font-size: 0.85em;
+    color: #6b7280;
+}
+
+.cp750-detail {
+    display: flex;
+    gap: 5px;
+}
+
+.cp750-controls {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
 }
 
-.light-controls .btn {
+.cp750-fader-container label {
+    display: block;
+    font-size: 0.9em;
+    color: #5b21b6;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.cp750-fader-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cp750-fader {
     flex: 1;
+    height: 8px;
+    border-radius: 5px;
+    background: #d8b4fe;
+    outline: none;
+    -webkit-appearance: none;
 }
 
-.btn-light-on {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+.cp750-fader::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.4);
+    transition: all 0.2s;
+}
+
+.cp750-fader::-webkit-slider-thumb:active {
+    transform: scale(1.15);
+}
+
+.cp750-fader::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.4);
+}
+
+.cp750-fader:disabled {
+    opacity: 0.5;
+}
+
+.cp750-fader-value {
+    font-weight: bold;
+    color: #7c3aed;
+    min-width: 35px;
+    text-align: center;
+}
+
+.btn-cp750-mute {
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
     color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 1.1em;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
-.btn-light-on:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 3px 10px rgba(245, 158, 11, 0.4);
+.btn-cp750-mute.muted {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 }
 
-.btn-light-off {
-    background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+.btn-cp750-mute:hover:not(:disabled) {
+    transform: scale(1.05);
+}
+
+.btn-cp750-mute:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cp750-presets {
+    display: flex;
+    gap: 5px;
+    justify-content: space-between;
+}
+
+.btn-cp750 {
+    flex: 1;
+    padding: 8px;
+    background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
     color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
-.btn-light-off:hover:not(:disabled) {
+.btn-cp750:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 3px 10px rgba(107, 114, 128, 0.4);
+    box-shadow: 0 3px 10px rgba(139, 92, 246, 0.4);
+}
+
+.btn-cp750:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Лог */
@@ -657,20 +795,6 @@ header h1 {
     /* Управление светом */
     .light-control {
         padding: 15px;
-    }
-    
-    .light-control h3 {
-        font-size: 1.1em;
-    }
-    
-    .light-buttons {
-        gap: 10px;
-    }
-    
-    .btn-light-on,
-    .btn-light-off {
-        flex: 1;
-        font-size: 1.05em;
     }
     
     /* Лог */

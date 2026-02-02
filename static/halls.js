@@ -5,6 +5,8 @@ let currentHallId = null;
 let hallsData = {};
 let sse = null;
 let pollTimer = null;
+let cp750PollTimer = null;
+let cp750Status = {};  // Хранение статуса CP750 для всех залов
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
@@ -35,7 +37,8 @@ async function loadHallsData() {
                 ip: hall.ip,
                 port: hall.port,
                 tms_id: hall.tms_id || hall.id,
-                protocol: hall.protocol || 'barco'
+                protocol: hall.protocol || 'barco',
+                cp750_id: hall.cp750_id || null
             };
         });
         
@@ -73,7 +76,6 @@ async function selectHall() {
     
     // Обновить информацию о зале
     document.getElementById('active-hall-name').textContent = hall.name;
-    document.getElementById('active-hall-info').textContent = `${hall.ip}:${hall.port}`;
     
     // Очистить лог
     document.getElementById('hall-log').innerHTML = '';
@@ -86,11 +88,12 @@ async function selectHall() {
     document.getElementById('status-text').textContent = 'API доступен';
 
     startStatus();
+    startCP750Status();
 }
 
 // Активация/деактивация элементов управления
 function setControlsEnabled(enabled) {
-    const controls = document.querySelectorAll('#shutdown-btn, #volume-slider, .btn-volume, .btn-light-on, .btn-light-off');
+    const controls = document.querySelectorAll('#shutdown-btn, #cp750-fader, .btn-cp750, #cp750-mute-btn');
     controls.forEach(c => c.disabled = !enabled);
 }
 
@@ -119,6 +122,7 @@ function startStatus() {
 function stopStatus() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (sse) { try { sse.close(); } catch(_) {}; sse = null; }
+    stopCP750Status();
 }
 
 // Запрос статуса через поллинг
@@ -195,27 +199,130 @@ async function confirmShutdown() {
     
     if (!currentHallId) return;
     
+    const hall = hallsData[currentHallId];
+    const tmsId = hall.tms_id || currentHallId;
+    const cp750Id = hall.cp750_id;
+    
     const btn = document.getElementById('shutdown-btn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Завершение...';
     
-    try {
-        const response = await fetch(`/api/${currentHallId}/shutdown-session`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        
-        if (!data.success) {
-            addLog('Ошибка завершения сеанса', 'error');
+    addLog('=== ЗАВЕРШЕНИЕ СЕАНСА ===', 'info');
+    
+    let hasErrors = false;
+    
+    // Вспомогательная функция для безопасного парсинга JSON
+    async function safeJsonParse(response) {
+        try {
+            const text = await response.text();
+            if (!text || text.trim() === '') return null;
+            return JSON.parse(text);
+        } catch (e) {
+            return null;
         }
-    } catch (error) {
-        addLog('Ошибка: ' + error.message, 'error');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = originalText;
     }
+    
+    // 1. Остановка воспроизведения
+    try {
+        addLog('Остановка воспроизведения...', 'info');
+        const r = await fetch(`/api/${tmsId}/stop`, { method: 'POST' });
+        const data = await safeJsonParse(r);
+        if (r.ok || (data && data.ok)) {
+            addLog('✓ Воспроизведение остановлено', 'success');
+        } else {
+            addLog('✗ Ошибка остановки: ' + (data?.detail || data?.error || 'unknown'), 'error');
+            hasErrors = true;
+        }
+    } catch (e) {
+        addLog('✗ Ошибка остановки: ' + e.message, 'error');
+        hasErrors = true;
+    }
+    
+    // 2. Закрытие шторки (Dowser)
+    try {
+        addLog('Закрытие шторки...', 'info');
+        const r = await fetch(`/api/${tmsId}/projector/dowser/close`, { method: 'POST' });
+        const data = await safeJsonParse(r);
+        if (r.ok || (data && data.ok)) {
+            addLog('✓ Шторка закрыта', 'success');
+        } else {
+            addLog('✗ Ошибка закрытия шторки: ' + (data?.detail || data?.error || 'unknown'), 'error');
+            hasErrors = true;
+        }
+    } catch (e) {
+        addLog('✗ Ошибка закрытия шторки: ' + e.message, 'error');
+        hasErrors = true;
+    }
+    
+    // 3. Выключение лампы
+    try {
+        addLog('Выключение лампы...', 'info');
+        const r = await fetch(`/api/${tmsId}/projector/lamp/off`, { method: 'POST' });
+        const data = await safeJsonParse(r);
+        if (r.ok || (data && data.ok)) {
+            addLog('✓ Лампа выключена', 'success');
+        } else {
+            addLog('✗ Ошибка выключения лампы: ' + (data?.detail || data?.error || 'unknown'), 'error');
+            hasErrors = true;
+        }
+    } catch (e) {
+        addLog('✗ Ошибка выключения лампы: ' + e.message, 'error');
+        hasErrors = true;
+    }
+    
+    // 4. Установка громкости CP750 на 30
+    if (cp750Id) {
+        try {
+            addLog('Установка громкости CP750 → 30...', 'info');
+            const r = await fetch(`/api/cp750/${cp750Id}/fader`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: 30, force: false })
+            });
+            const data = await safeJsonParse(r);
+            if (r.ok || (data && (data.success || data.ok))) {
+                addLog('✓ Громкость CP750 установлена на 30', 'success');
+            } else {
+                addLog('✗ Ошибка установки громкости: ' + (data?.detail || data?.error || 'unknown'), 'error');
+                hasErrors = true;
+            }
+        } catch (e) {
+            addLog('✗ Ошибка установки громкости: ' + e.message, 'error');
+            hasErrors = true;
+        }
+        
+        // 5. Переключение входа CP750 на non_sync
+        try {
+            addLog('Переключение входа CP750 → non_sync...', 'info');
+            const r = await fetch(`/api/cp750/${cp750Id}/input-mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'non_sync' })
+            });
+            const data = await safeJsonParse(r);
+            if (r.ok || (data && (data.success || data.ok))) {
+                addLog('✓ Вход CP750 переключен на non_sync', 'success');
+            } else {
+                addLog('✗ Ошибка переключения входа: ' + (data?.detail || data?.error || 'unknown'), 'error');
+                hasErrors = true;
+            }
+        } catch (e) {
+            addLog('✗ Ошибка переключения входа: ' + e.message, 'error');
+            hasErrors = true;
+        }
+    } else {
+        addLog('⚠ CP750 не настроен для этого зала', 'warning');
+    }
+    
+    if (hasErrors) {
+        addLog('=== СЕАНС ЗАВЕРШЕН С ОШИБКАМИ ===', 'warning');
+    } else {
+        addLog('=== СЕАНС УСПЕШНО ЗАВЕРШЕН ===', 'success');
+    }
+    
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Отмена завершения сеанса
@@ -254,61 +361,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
-
-// Управление светом
-async function sendLightCommand(action) {
-    if (!currentHallId) return;
-    
-    try {
-        const response = await fetch(`/api/${currentHallId}/light/${action}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        
-        if (!data.success) {
-            addLog('Ошибка: ' + data.message, 'error');
-        }
-    } catch (error) {
-        addLog('Ошибка: ' + error.message, 'error');
-    }
-}
-
-// Обновление отображения громкости
-function updateVolumeDisplay(faderValue) {
-    const level = (parseFloat(faderValue) / 10).toFixed(1);
-    document.getElementById('volume-value').textContent = level;
-}
-
-// Установка громкости
-async function setVolume(faderValue) {
-    if (!currentHallId) return;
-    
-    const level = parseFloat(faderValue) / 10;
-    
-    try {
-        const response = await fetch(`/api/${currentHallId}/volume`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ level: level })
-        });
-        const data = await response.json();
-        
-        if (!data.success) {
-            addLog('Ошибка: ' + data.message, 'error');
-        }
-    } catch (error) {
-        addLog('Ошибка: ' + error.message, 'error');
-    }
-}
-
-// Установка предустановки громкости
-function setVolumePreset(faderValue) {
-    const slider = document.getElementById('volume-slider');
-    slider.value = faderValue;
-    updateVolumeDisplay(faderValue);
-    setVolume(faderValue);
-}
 
 // Добавление лога
 function addLog(message, level = 'info', timestamp = null) {
@@ -353,5 +405,185 @@ async function logout() {
     } catch (error) {
         console.error('Ошибка выхода:', error);
         alert('Ошибка выхода из системы');
+    }
+}
+
+// ============ CP750 Аудиопроцессор ============
+
+// Запуск опроса статуса CP750
+function startCP750Status() {
+    stopCP750Status();
+    fetchCP750Status();
+    cp750PollTimer = setInterval(fetchCP750Status, 3000);
+}
+
+// Остановка опроса CP750
+function stopCP750Status() {
+    if (cp750PollTimer) {
+        clearInterval(cp750PollTimer);
+        cp750PollTimer = null;
+    }
+}
+
+// Получение статуса всех CP750
+async function fetchCP750Status() {
+    try {
+        const r = await fetch('/api/cp750/status/all');
+        if (!r.ok) return;
+        const data = await r.json();
+        
+        if (data.ok && data.devices) {
+            data.devices.forEach(dev => {
+                // Преобразуем формат от TMS API в удобный формат
+                const id = dev.id || dev.status?.cp750_id;
+                if (id && dev.status) {
+                    cp750Status[id] = {
+                        id: id,
+                        level: parseInt(dev.status['cp750.sys.fader'] || '50'),
+                        mute: dev.status['cp750.sys.mute'] === '1',
+                        format: dev.status['cp750.state.bitstream_format'] || '—',
+                        input_mode: dev.status['cp750.sys.input_mode'] || '—',
+                        sample_rate: dev.status['cp750.state.sample_rate'] || '—',
+                        unavailable: dev.unavailable || false,
+                        lastError: dev.lastError
+                    };
+                }
+            });
+        }
+        
+        applyCP750Status();
+    } catch (e) {
+        console.error('CP750 status error:', e);
+    }
+}
+
+// Применение статуса CP750 к UI
+function applyCP750Status() {
+    if (!currentHallId) return;
+    
+    const hall = hallsData[currentHallId];
+    if (!hall || !hall.cp750_id) {
+        // Нет CP750 для этого зала
+        document.getElementById('cp750-status-text').textContent = 'Не настроен';
+        return;
+    }
+    
+    const status = cp750Status[hall.cp750_id];
+    if (!status) {
+        document.getElementById('cp750-indicator').classList.remove('online');
+        document.getElementById('cp750-indicator').classList.add('offline');
+        document.getElementById('cp750-status-text').textContent = 'Нет данных';
+        document.getElementById('cp750-details').style.display = 'none';
+        return;
+    }
+    
+    // Проверяем доступность
+    if (status.unavailable) {
+        document.getElementById('cp750-indicator').classList.remove('online');
+        document.getElementById('cp750-indicator').classList.add('offline');
+        document.getElementById('cp750-status-text').textContent = 'Недоступен';
+        document.getElementById('cp750-details').style.display = 'none';
+        return;
+    }
+    
+    // Обновляем индикатор
+    document.getElementById('cp750-indicator').classList.remove('offline');
+    document.getElementById('cp750-indicator').classList.add('online');
+    document.getElementById('cp750-status-text').textContent = 'Подключен';
+    document.getElementById('cp750-details').style.display = 'flex';
+    
+    // Формат и вход
+    document.getElementById('cp750-format').textContent = status.format || '—';
+    document.getElementById('cp750-input').textContent = status.input_mode || '—';
+    
+    // Уровень громкости
+    const level = status.level ?? 50;
+    document.getElementById('cp750-fader').value = level;
+    document.getElementById('cp750-fader-value').textContent = level;
+    
+    // Mute
+    const muted = status.mute === true;
+    const muteBtn = document.getElementById('cp750-mute-btn');
+    if (muted) {
+        muteBtn.classList.add('muted');
+        muteBtn.textContent = '🔇';
+    } else {
+        muteBtn.classList.remove('muted');
+        muteBtn.textContent = '🔊';
+    }
+}
+
+// Обновление отображения fader CP750
+function updateCP750FaderDisplay(value) {
+    document.getElementById('cp750-fader-value').textContent = value;
+}
+
+// Установка fader CP750
+async function setCP750Fader(value) {
+    if (!currentHallId) return;
+    
+    const hall = hallsData[currentHallId];
+    if (!hall || !hall.cp750_id) {
+        addLog('CP750 не настроен для этого зала', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/cp750/${hall.cp750_id}/fader`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: parseInt(value), force: false })
+        });
+        const data = await response.json();
+        
+        if (!data.success) {
+            addLog('Ошибка CP750: ' + (data.error || data.message), 'error');
+        }
+    } catch (error) {
+        addLog('Ошибка CP750: ' + error.message, 'error');
+    }
+}
+
+// Установка пресета CP750
+function setCP750Preset(value) {
+    const slider = document.getElementById('cp750-fader');
+    slider.value = value;
+    updateCP750FaderDisplay(value);
+    setCP750Fader(value);
+}
+
+// Переключение Mute CP750
+async function toggleCP750Mute() {
+    if (!currentHallId) return;
+    
+    const hall = hallsData[currentHallId];
+    if (!hall || !hall.cp750_id) {
+        addLog('CP750 не настроен для этого зала', 'error');
+        return;
+    }
+    
+    const status = cp750Status[hall.cp750_id];
+    const currentMute = status?.mute === true;
+    const newMute = !currentMute;
+    
+    try {
+        const response = await fetch(`/api/cp750/${hall.cp750_id}/mute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mute: newMute })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            // Обновляем локальный статус
+            if (cp750Status[hall.cp750_id]) {
+                cp750Status[hall.cp750_id].mute = newMute;
+            }
+            applyCP750Status();
+        } else {
+            addLog('Ошибка CP750 Mute: ' + (data.error || data.message), 'error');
+        }
+    } catch (error) {
+        addLog('Ошибка CP750 Mute: ' + error.message, 'error');
     }
 }
