@@ -258,7 +258,17 @@ async function confirmShutdown() {
     // 3. Выключение лампы
     try {
         addLog('Выключение лампы...', 'info');
-        const r = await fetch(`/api/${tmsId}/projector/lamp/off`, { method: 'POST' });
+        let r;
+        // Временное решение для Зал2 - через макрос
+        if (currentHallId === 'hall2') {
+            r = await fetch('http://192.168.198.21:8089/api/Zal2/activate-projector-macro', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Lamp OFF' })
+            });
+        } else {
+            r = await fetch(`/api/${tmsId}/projector/lamp/off`, { method: 'POST' });
+        }
         const data = await safeJsonParse(r);
         if (r.ok || (data && data.ok)) {
             addLog('✓ Лампа выключена', 'success');
