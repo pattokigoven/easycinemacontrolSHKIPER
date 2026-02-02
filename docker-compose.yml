@@ -10,6 +10,7 @@ services:
     environment:
       - FLASK_ENV=production
       - TZ=Europe/Moscow
+      - TMS_API_BASE=http://192.168.198.21:8089
     volumes:
       - ./halls_config.json:/app/halls_config.json:ro
       - ./greetings.txt:/app/greetings.txt:ro

@@ -1,9 +1,10 @@
 // WebSocket подключение
 const socket = io();
 
-// Текущий активный зал
 let currentHallId = null;
 let hallsData = {};
+let sse = null;
+let pollTimer = null;
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
@@ -30,147 +31,147 @@ async function loadHallsData() {
         
         halls.forEach(hall => {
             hallsData[hall.id] = {
-                connected: hall.connected,
                 name: hall.name,
                 ip: hall.ip,
-                port: hall.port
+                port: hall.port,
+                tms_id: hall.tms_id || hall.id,
+                protocol: hall.protocol || 'barco'
             };
         });
         
         addLog('Веб-интерфейс загружен', 'info');
-    } catch (error) {
-        console.error('Ошибка загрузки данных залов:', error);
+    } catch (e) {
         addLog('Ошибка загрузки конфигурации', 'error');
     }
 }
 
 // Выбор зала из списка
 async function selectHall() {
-    const select = document.getElementById('hall-select');
-    const hallId = select.value;
+    const sel = document.getElementById('hall-select');
+    const hallId = sel.value;
     
     console.log('Выбран зал:', hallId);
     
     if (!hallId) {
         // Скрыть карточку если зал не выбран
         document.getElementById('hall-container').style.display = 'none';
+        stopStatus();
         currentHallId = null;
         return;
     }
     
-    // Если был выбран другой зал, отключаемся от текущего
-    if (currentHallId && currentHallId !== hallId && hallsData[currentHallId]?.connected) {
-        await disconnectHall(currentHallId);
-    }
-    
     currentHallId = hallId;
-    const hallData = hallsData[hallId];
+    const hall = hallsData[hallId];
     
-    if (!hallData) {
-        console.error('Данные зала не найдены:', hallId);
-        addLog(`Ошибка: данные зала ${hallId} не найдены`, 'error');
-        return;
+    if (!hall) { 
+        addLog('Данные зала не найдены', 'error'); 
+        return; 
     }
-    
-    console.log('Данные зала:', hallData);
-    
+
     // Показать карточку
     document.getElementById('hall-container').style.display = 'block';
     
     // Обновить информацию о зале
-    document.getElementById('active-hall-name').textContent = hallData.name;
-    document.getElementById('active-hall-info').textContent = `${hallData.ip}:${hallData.port}`;
+    document.getElementById('active-hall-name').textContent = hall.name;
+    document.getElementById('active-hall-info').textContent = `${hall.ip}:${hall.port}`;
     
     // Очистить лог
     document.getElementById('hall-log').innerHTML = '';
-    addLog(`Выбран ${hallData.name} (ID: ${hallId})`, 'info');
-    
-    // Обновить UI
-    updateHallUI(false); // Сначала показываем как не подключенный
-    
-    // Автоматическое подключение
-    if (!hallData.connected) {
-        addLog('Подключение...', 'info');
-        await connectToHall(hallId);
-    } else {
-        updateHallUI(true);
-    }
+    addLog(`Выбран ${hall.name} (ID: ${hallId})`, 'info');
+
+    // Сразу активируем UI, т.к. внешний API — сокет-подключение не требуется
+    setControlsEnabled(true);
+    document.getElementById('status-indicator').classList.remove('offline');
+    document.getElementById('status-indicator').classList.add('online');
+    document.getElementById('status-text').textContent = 'API доступен';
+
+    startStatus();
 }
 
-// Подключение к залу
-async function connectToHall(hallId) {
-    if (!hallId) hallId = currentHallId;
-    if (!hallId) return;
-    
-    console.log('Подключение к залу:', hallId);
-    
+// Активация/деактивация элементов управления
+function setControlsEnabled(enabled) {
+    const controls = document.querySelectorAll('#shutdown-btn, #volume-slider, .btn-volume, .btn-light-on, .btn-light-off');
+    controls.forEach(c => c.disabled = !enabled);
+}
+
+// Запуск опроса статуса
+function startStatus() {
+    stopStatus();
+    // Подключаем SSE как основной канал
     try {
-        const url = `/api/${hallId}/connect`;
-        console.log('Отправка запроса:', url);
-        
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        
-        console.log('Ответ сервера:', response.status);
-        const data = await response.json();
-        console.log('Данные ответа:', data);
-        
-        if (data.success) {
-            hallsData[hallId].connected = true;
-            updateHallUI(true);
-        } else {
-            addLog('Ошибка подключения: ' + data.message, 'error');
-            updateHallUI(false);
-        }
-    } catch (error) {
-        console.error('Ошибка запроса:', error);
-        addLog('Ошибка подключения: ' + error.message, 'error');
-        updateHallUI(false);
-    }
+        sse = new EventSource('/api/status/stream');
+        sse.onmessage = (evt) => {
+            if (!evt?.data) return;
+            try {
+                const payload = JSON.parse(evt.data);
+                applyStatus(payload);
+            } catch (_) {}
+        };
+        sse.onerror = () => { try { sse.close(); } catch(_) {}; sse = null; };
+    } catch (_) { sse = null; }
+
+    // Резервный поллинг live раз в 2s
+    pollTimer = setInterval(fetchLive, 2000);
+    fetchLive();
 }
 
-// Отключение от зала (внутренняя функция)
-async function disconnectHall(hallId) {
+// Остановка опроса статуса
+function stopStatus() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (sse) { try { sse.close(); } catch(_) {}; sse = null; }
+}
+
+// Запрос статуса через поллинг
+async function fetchLive() {
     try {
-        await fetch(`/api/${hallId}/disconnect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        hallsData[hallId].connected = false;
-    } catch (error) {
-        console.error('Ошибка отключения:', error);
-    }
+        const r = await fetch('/api/status/live');
+        if (!r.ok) return;
+        const data = await r.json();
+        applyStatus(data);
+    } catch (_) {}
 }
 
-// Обновление UI зала
-function updateHallUI(connected) {
-    const statusIndicator = document.getElementById('status-indicator');
-    const statusText = document.getElementById('status-text');
-    
-    // Все кнопки управления
-    const controls = document.querySelectorAll(`
-        #shutdown-btn,
-        #volume-slider,
-        .btn-volume,
-        .btn-light-on,
-        .btn-light-off
-    `);
-    
-    if (connected) {
-        statusIndicator.classList.remove('offline');
-        statusIndicator.classList.add('online');
-        statusText.textContent = 'Подключено';
-        
-        controls.forEach(ctrl => ctrl.disabled = false);
-    } else {
-        statusIndicator.classList.remove('online');
-        statusIndicator.classList.add('offline');
-        statusText.textContent = 'Подключение...';
-        
-        controls.forEach(ctrl => ctrl.disabled = true);
-    }
+// Применение статуса к UI
+function applyStatus(data) {
+    if (!currentHallId || !data || !data.devices) return;
+    const hall = hallsData[currentHallId];
+    const dev = data.devices.find(d => d.id === hall.tms_id || d.name === hall.name);
+    if (!dev) return;
+
+    const stateEl = document.getElementById('playback-state');
+    const titleEl = document.getElementById('playback-title');
+    const posEl = document.getElementById('playback-position');
+    const durEl = document.getElementById('playback-duration');
+
+    const state = dev.state || dev.status?.State || '—';
+    const title = dev.title || dev.status?.Title || '—';
+    const pos = dev.positionMs ?? dev.status?.CurrentPositionInMilliseconds;
+    const dur = dev.durationMs ?? dev.status?.DurationInMilliseconds;
+
+    stateEl.textContent = state + formatLampDowser(dev);
+    titleEl.textContent = title;
+    posEl.textContent = msToTime(pos);
+    durEl.textContent = msToTime(dur);
+}
+
+// Форматирование информации о лампе и даузере
+function formatLampDowser(dev) {
+    const lamp = dev.lamp || dev.status?.Lamp;
+    const dowser = dev.dowser || dev.status?.Dowser;
+    const parts = [];
+    if (lamp) parts.push(`Lamp: ${lamp}`);
+    if (dowser) parts.push(`Dowser: ${dowser}`);
+    return parts.length ? ` (${parts.join(', ')})` : '';
+}
+
+// Конвертация миллисекунд в формат времени
+function msToTime(ms) {
+    if (typeof ms !== 'number') return '—';
+    const t = Math.floor(ms / 1000);
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = t % 60;
+    return (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
 // Завершение сеанса - показ модального окна

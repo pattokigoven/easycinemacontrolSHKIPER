@@ -3,7 +3,7 @@ Barco ICMP Multi-Hall Control - Web Interface
 Веб-интерфейс для управления несколькими залами одновременно
 """
 
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 from flask_socketio import SocketIO, emit
 import socket
 import threading
@@ -12,13 +12,19 @@ import json
 import random
 from datetime import datetime
 import os
+import requests
+
+
+# Базовый URL внешнего TMS API (можно переопределить через TMS_API_BASE)
+EXTERNAL_API_BASE = os.environ.get('TMS_API_BASE', 'http://192.168.198.21:8089')
 
 
 class BarcoController:
     """Класс для управления одним залом Barco ICMP"""
     
-    def __init__(self, hall_id, host='192.168.1.100', port=43748):
+    def __init__(self, hall_id, host='192.168.1.100', port=43748, tms_id=None):
         self.hall_id = hall_id
+        self.tms_id = tms_id or hall_id  # ID устройства во внешнем TMS (если отличается)
         self.host = host
         self.port = port
         self.socket = None
@@ -119,12 +125,72 @@ class BarcoController:
             self.lock.release()
     
     def stop(self):
-        """Остановка воспроизведения"""
-        return self.send_command("PLAYER.Stop")
+        """Остановка воспроизведения через внешний TMS API с fallback на ICMP.
+
+        Попытка: POST {EXTERNAL_API_BASE}/api/{device_id}/stop
+        В случае сетевой ошибки или некорректного ответа — выполняется внутренняя остановка.
+        Возвращает (success: bool, message: str).
+        """
+        url = f"{EXTERNAL_API_BASE}/api/{self.tms_id}/stop"
+        try:
+            resp = requests.post(url, timeout=5)
+        except Exception as e:
+            print(f"[{self.hall_id}] Внешний TMS API недоступен при stop: {e}. Применяем внутренний стоп.")
+            return self.send_command("PLAYER.Stop")
+
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                ok = data.get('ok', True) if isinstance(data, dict) else True
+                return bool(ok), resp.text
+            except ValueError:
+                return True, resp.text
+        else:
+            print(f"[{self.hall_id}] TMS API stop вернул HTTP {resp.status_code}, тело: {resp.text}. Применяем внутренний стоп.")
+            return self.send_command("PLAYER.Stop")
+    
+    def play(self):
+        """Запуск воспроизведения через внешний TMS API с фолбэком на ICMP.
+
+        POST {EXTERNAL_API_BASE}/api/{device_id}/play
+        """
+        url = f"{EXTERNAL_API_BASE}/api/{self.tms_id}/play"
+        try:
+            resp = requests.post(url, timeout=5)
+        except Exception as e:
+            print(f"[{self.hall_id}] Внешний TMS API недоступен при play: {e}. Применяем внутренний запуск.")
+            return self.send_command("PLAYER.Play")
+
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                ok = data.get('ok', True) if isinstance(data, dict) else True
+                return bool(ok), resp.text
+            except ValueError:
+                return True, resp.text
+        else:
+            print(f"[{self.hall_id}] TMS API play вернул HTTP {resp.status_code}, тело: {resp.text}. Применяем внутренний запуск.")
+            return self.send_command("PLAYER.Play")
     
     def lamp_off(self):
-        """Выключение лампы"""
-        return self.send_command("PROJECTOR.Turn Lamp Off")
+        """Выключение лампы через внешний TMS API с фолбэком на ICMP"""
+        url = f"{EXTERNAL_API_BASE}/api/{self.tms_id}/projector/lamp/off"
+        try:
+            resp = requests.post(url, timeout=5)
+        except Exception as e:
+            print(f"[{self.hall_id}] Внешний TMS API недоступен при lamp_off: {e}. Применяем внутреннюю команду.")
+            return self.send_command("PROJECTOR.Turn Lamp Off")
+
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                ok = data.get('ok', True) if isinstance(data, dict) else True
+                return bool(ok), resp.text
+            except ValueError:
+                return True, resp.text
+        else:
+            print(f"[{self.hall_id}] TMS API lamp_off вернул HTTP {resp.status_code}, тело: {resp.text}. Применяем внутреннюю команду.")
+            return self.send_command("PROJECTOR.Turn Lamp Off")
     
     def clear(self):
         """Очистка плейлиста"""
@@ -147,22 +213,22 @@ class BarcoController:
         """Полное завершение сеанса: Stop -> Lamp OFF -> Clear -> Lights ON"""
         results = []
         
-        # 1. Остановка
+        # 1. Остановка (через TMS при наличии)
         success, response = self.stop()
         results.append(('stop', success, response))
         time.sleep(0.5)
         
-        # 2. Выключение лампы
+        # 2. Выключение лампы (через TMS при наличии)
         success, response = self.lamp_off()
         results.append(('lamp_off', success, response))
         time.sleep(0.5)
         
-        # 3. Очистка
+        # 3. Очистка (внутренняя команда ICMP)
         success, response = self.clear()
         results.append(('clear', success, response))
         time.sleep(0.5)
         
-        # 4. Включение света
+        # 4. Включение света (EKOS внутренняя команда)
         success, response = self.send_command('EKOS.Send Text,"$KE,WR,4,1\\0D\\0A"')
         results.append(('lights_on', success, response))
         
@@ -236,7 +302,8 @@ def init_controllers():
         controllers[hall_id] = BarcoController(
             hall_id=hall_id,
             host=hall['ip'],
-            port=hall['port']
+            port=hall['port'],
+            tms_id=hall.get('tms_id')
         )
     print(f"Инициализировано {len(controllers)} залов")
     print(f"Ключи в controllers: {list(controllers.keys())}")
@@ -304,60 +371,102 @@ def get_admin():
 
 @app.route('/api/halls')
 def get_halls():
-    """Получить список залов с их статусом"""
+    """Получить список залов с их базовой конфигурацией (без сокетов)."""
     halls = load_halls_config()
-    halls_status = []
+    result = []
     for hall in halls:
-        hall_id = hall['id']
-        controller = controllers.get(hall_id)
-        halls_status.append({
-            'id': hall_id,
+        result.append({
+            'id': hall['id'],
             'name': hall['name'],
             'ip': hall['ip'],
             'port': hall['port'],
-            'connected': controller.connected if controller else False
+            'tms_id': hall.get('tms_id', hall['id']),
+            'protocol': hall.get('protocol', 'barco'),
+            'connected': False
         })
-    return jsonify(halls_status)
+    return jsonify(result)
 
+
+@app.route('/api/status/live')
+def status_live():
+    """Прокси для агрегированного статуса (JSON, с Lamp/Dowser для Barco)."""
+    try:
+        r = requests.get(f"{EXTERNAL_API_BASE}/api/status/live", timeout=5)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+@app.route('/api/status/stream')
+def status_stream():
+    """Прокси для SSE стрима статусов (auto-update)."""
+    try:
+        upstream = requests.get(f"{EXTERNAL_API_BASE}/api/status/stream", stream=True, timeout=5)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 502
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=None):
+                if chunk:
+                    yield chunk
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    ct = upstream.headers.get('Content-Type', 'text/event-stream')
+    return Response(stream_with_context(generate()), mimetype=ct)
 
 @app.route('/api/<hall_id>/connect', methods=['POST'])
 def connect_hall(hall_id):
-    """Подключение к залу"""
+    """Внешний API режим — физическое подключение не требуется."""
     if 'admin_name' not in session:
         return jsonify({'success': False, 'message': 'Не авторизован'}), 401
-    
-    admin_name = session['admin_name']
-    print(f"[API] Запрос на подключение к залу: {hall_id} от {admin_name}")
-    print(f"[API] Доступные залы: {list(controllers.keys())}")
-    
-    controller = controllers.get(hall_id)
-    if not controller:
-        print(f"[API] ОШИБКА: Зал {hall_id} не найден в controllers")
-        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
-    
-    print(f"[API] Контроллер найден для {hall_id}, начинаем подключение...")
-    success, message = controller.connect()
-    emit_log(hall_id, message, 'success' if success else 'error')
-    
-    return jsonify({'success': success, 'message': message})
-
+    return jsonify({'success': True, 'message': 'API режим: сокет-подключение не требуется'})
 
 @app.route('/api/<hall_id>/disconnect', methods=['POST'])
 def disconnect_hall(hall_id):
-    """Отключение от зала"""
+    """Внешний API режим — просто подтверждаем."""
     if 'admin_name' not in session:
         return jsonify({'success': False, 'message': 'Не авторизован'}), 401
-    
+    return jsonify({'success': True, 'message': 'Отключено (логически)'})
+
+@app.route('/api/<hall_id>/play', methods=['POST'])
+def api_play(hall_id):
+    """Запуск сеанса (воспроизведения) через внешний API"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+
     admin_name = session['admin_name']
     controller = controllers.get(hall_id)
     if not controller:
         return jsonify({'success': False, 'message': 'Зал не найден'}), 404
-    
-    controller.disconnect()
-    log_action(admin_name, hall_id, 'DISCONNECT', f'IP: {controller.host}')
-    emit_log(hall_id, 'Отключено', 'info')
-    
-    return jsonify({'success': True, 'message': 'Отключено'})
+
+    # Для play подключение к ICMP не обязательно, но оставим проверку статуса UI
+    success, response = controller.play()
+    log_action(admin_name, hall_id, 'PLAY', '')
+    emit_log(hall_id, f'Запуск воспроизведения: {response}', 'success' if success else 'error')
+
+    return jsonify({'success': success, 'message': response})
+
+
+@app.route('/api/<hall_id>/stop', methods=['POST'])
+def api_stop(hall_id):
+    """Остановка сеанса через внешний API"""
+    if 'admin_name' not in session:
+        return jsonify({'success': False, 'message': 'Не авторизован'}), 401
+
+    admin_name = session['admin_name']
+    controller = controllers.get(hall_id)
+    if not controller:
+        return jsonify({'success': False, 'message': 'Зал не найден'}), 404
+
+    success, response = controller.stop()
+    log_action(admin_name, hall_id, 'STOP', '')
+    emit_log(hall_id, f'Остановка воспроизведения: {response}', 'success' if success else 'error')
+
+    return jsonify({'success': success, 'message': response})
 
 
 @app.route('/api/<hall_id>/shutdown-session', methods=['POST'])
@@ -379,14 +488,14 @@ def shutdown_session(hall_id):
     success, results = controller.shutdown_session()
     
     # Логирование действия
-    log_action(admin_name, hall_id, 'SHUTDOWN_SESSION', 
+    log_action(admin_name, hall_id, 'SHUTDOWN_SESSION',
               f'Результат: {"успешно" if success else "с ошибками"}')
     
     for action, result, response in results:
         level = 'success' if result else 'error'
         emit_log(hall_id, f'{action}: {response}', level)
     
-    emit_log(hall_id, '=== СЕАНС ЗАВЕРШЕН ===' if success else '=== ЗАВЕРШЕНО С ОШИБКАМИ ===', 
+    emit_log(hall_id, '=== СЕАНС ЗАВЕРШЕН ===' if success else '=== ЗАВЕРШЕНО С ОШИБКАМИ ===',
              'success' if success else 'warning')
     
     return jsonify({'success': success, 'message': 'Сеанс завершен' if success else 'Завершено с ошибками'})
@@ -469,8 +578,8 @@ if __name__ == '__main__':
         print(f"  - {hall_id}: {controller.host}:{controller.port}")
     print()
     print("Сервер запущен на:")
-    print("  http://127.0.0.1:5000")
-    print("  http://0.0.0.0:5000")
+    print("  http://127.0.0.1:5059")
+    print("  http://0.0.0.0:5059")
     print("=" * 50)
     
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5059, debug=False)
